@@ -3,10 +3,32 @@ from tkinter import ttk, scrolledtext
 import subprocess
 import threading
 import re
-import sys
 import os
 
 BASE_OUTPUT_DIR = r"P:\Rename\TV\Iplayer"
+
+# BBC iPlayer official colour palette
+# Source: BBC iPlayer styleguide
+BG          = "#111111"   # dark-gray
+CARD        = "#1a1a1a"   # darker-gray
+SURFACE     = "#212020"   # another-gray
+BORDER      = "#323232"   # battered-gray
+INPUT_BG    = "#2E2E2E"   # carousel-gray
+INPUT_BD    = "#404040"   # gray
+FG          = "#ffffff"   # white
+FG_MUT      = "#BDBDBD"   # silver
+FG_HINT     = "#808080"   # definition-gray
+PINK        = "#f54997"   # iplayer-pink
+PINK_ACT    = "#cf3e80"   # not-quite-iplayer-pink
+PINK_ON     = "#e92f83"   # onnow-pink
+MONO_FG     = "#f54997"   # use pink for path highlight
+SUCCESS_FG  = "#4caf79"
+ERROR_FG    = "#f47a8a"
+WARN_FG     = "#ff9600"   # tangerine
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ICON_MAIN  = os.path.join(SCRIPT_DIR, "get_iplayer.ico")
+ICON_PVR   = os.path.join(SCRIPT_DIR, "get_iplayer_pvr.ico")
 
 def sanitize(name):
     return re.sub(r'[\\/:*?"<>|]', '', name)
@@ -16,7 +38,15 @@ class App(tk.Tk):
         super().__init__()
         self.title("get_iplayer Downloader")
         self.resizable(False, False)
-        self.configure(bg="#1a1a2e")
+        self.configure(bg=BG)
+
+        # Window icon
+        if os.path.exists(ICON_MAIN):
+            try:
+                self.iconbitmap(ICON_MAIN)
+            except Exception:
+                pass
+
         self._build_ui()
         self._center()
 
@@ -28,102 +58,105 @@ class App(tk.Tk):
 
     def _build_ui(self):
         PAD = 20
-        BG        = "#1a1a2e"
-        CARD      = "#16213e"
-        ACCENT    = "#e94560"
-        BORDER    = "#0f3460"
-        FG        = "#e0e0e0"
-        FG_MUT    = "#8892a4"
-        MONO_FG   = "#4db8ff"
-        INPUT_BG  = "#0f3460"
-        INPUT_BD  = "#1a4a8a"
 
         outer = tk.Frame(self, bg=BG, padx=PAD, pady=PAD)
         outer.pack(fill="both", expand=True)
 
-        card = tk.Frame(outer, bg=CARD, bd=0, highlightthickness=1,
-                        highlightbackground=BORDER, padx=PAD, pady=PAD)
+        card = tk.Frame(outer, bg=CARD, bd=0,
+                        highlightthickness=1, highlightbackground=BORDER,
+                        padx=PAD, pady=PAD)
         card.pack(fill="both", expand=True)
 
-        # --- Header ---
+        # ── Header ──────────────────────────────────────────────
         hdr = tk.Frame(card, bg=CARD)
         hdr.pack(fill="x", pady=(0, 14))
 
-        icon_box = tk.Label(hdr, text="▶", bg=ACCENT, fg="white",
-                            font=("Segoe UI", 14, "bold"), width=3, pady=4)
-        icon_box.pack(side="left", padx=(0, 12))
+        # Try to show PVR icon in header
+        self._pvr_img = None
+        if os.path.exists(ICON_PVR):
+            try:
+                from PIL import Image, ImageTk
+                img = Image.open(ICON_PVR).resize((32, 32), Image.LANCZOS)
+                self._pvr_img = ImageTk.PhotoImage(img)
+                lbl_icon = tk.Label(hdr, image=self._pvr_img, bg=CARD)
+                lbl_icon.pack(side="left", padx=(0, 10))
+            except Exception:
+                self._pvr_img = None
 
-        tk.Label(hdr, text="get_iplayer Downloader", bg=CARD, fg="white",
-                 font=("Segoe UI", 13, "bold")).pack(side="left", anchor="s")
+        if self._pvr_img is None:
+            # Fallback: pink play triangle block
+            icon_box = tk.Label(hdr, text="▶", bg=PINK, fg=FG,
+                                font=("Segoe UI", 13, "bold"),
+                                width=3, pady=5)
+            icon_box.pack(side="left", padx=(0, 10))
 
-        ttk.Separator(card, orient="horizontal").pack(fill="x", pady=(0, 16))
+        title_frame = tk.Frame(hdr, bg=CARD)
+        title_frame.pack(side="left", anchor="w")
+        tk.Label(title_frame, text="get_iplayer", bg=CARD, fg=PINK,
+                 font=("Segoe UI", 14, "bold")).pack(anchor="w")
+        tk.Label(title_frame, text="BBC iPlayer downloader", bg=CARD, fg=FG_HINT,
+                 font=("Segoe UI", 9)).pack(anchor="w")
 
-        # --- Show name ---
-        tk.Label(card, text="SHOW NAME", bg=CARD, fg=FG_MUT,
-                 font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        self._sep(card)
 
+        # ── Show name ───────────────────────────────────────────
+        self._label(card, "SHOW NAME")
         self.show_name_var = tk.StringVar()
         self.show_name_var.trace_add("write", self._update_path)
-        name_entry = tk.Entry(card, textvariable=self.show_name_var,
-                              bg=INPUT_BG, fg=FG, insertbackground=FG,
-                              relief="flat", font=("Segoe UI", 11),
-                              highlightthickness=1, highlightbackground=INPUT_BD,
-                              highlightcolor=ACCENT)
-        name_entry.pack(fill="x", ipady=6, pady=(4, 12))
+        self._entry(card, self.show_name_var, "e.g. Blue Planet")
 
-        # --- Path display ---
-        path_frame = tk.Frame(card, bg="#0a1628", highlightthickness=1,
-                              highlightbackground=BORDER)
-        path_frame.pack(fill="x", pady=(0, 14))
+        # ── Path display ────────────────────────────────────────
+        path_frame = tk.Frame(card, bg=SURFACE,
+                              highlightthickness=1, highlightbackground=BORDER)
+        path_frame.pack(fill="x", pady=(4, 14))
 
-        tk.Label(path_frame, text="📁", bg="#0a1628", fg=MONO_FG,
-                 font=("Segoe UI", 10)).pack(side="left", padx=(8, 4), pady=6)
+        tk.Label(path_frame, text="📁", bg=SURFACE, fg=PINK,
+                 font=("Segoe UI", 10)).pack(side="left", padx=(8, 4), pady=7)
 
         self.path_var = tk.StringVar(value=BASE_OUTPUT_DIR + "\\")
-        tk.Label(path_frame, textvariable=self.path_var, bg="#0a1628",
-                 fg=MONO_FG, font=("Consolas", 10),
+        tk.Label(path_frame, textvariable=self.path_var,
+                 bg=SURFACE, fg=PINK,
+                 font=("Consolas", 10), anchor="w",
                  wraplength=420, justify="left").pack(
-                     side="left", pady=6, padx=(0, 8))
+                     side="left", pady=7, padx=(0, 8))
 
-        # --- IDs ---
-        tk.Label(card, text="SHOW / SEASON / EPISODE IDs  (comma-separated)",
-                 bg=CARD, fg=FG_MUT, font=("Segoe UI", 9, "bold")).pack(anchor="w")
-
+        # ── IDs ─────────────────────────────────────────────────
+        self._label(card, "SHOW / SEASON / EPISODE IDs  (comma-separated)")
         self.ids_var = tk.StringVar()
-        ids_entry = tk.Entry(card, textvariable=self.ids_var,
-                             bg=INPUT_BG, fg=FG, insertbackground=FG,
-                             relief="flat", font=("Segoe UI", 11),
-                             highlightthickness=1, highlightbackground=INPUT_BD,
-                             highlightcolor=ACCENT)
-        ids_entry.pack(fill="x", ipady=6, pady=(4, 16))
+        self._entry(card, self.ids_var, "e.g. b09w7fd3, p07qr8bz")
 
-        # --- Download button ---
-        self.dl_btn = tk.Button(card, text="⬇  Start download",
-                                bg=ACCENT, fg="white",
-                                font=("Segoe UI", 12, "bold"),
-                                relief="flat", cursor="hand2",
-                                activebackground="#c73652", activeforeground="white",
-                                command=self._start_download)
-        self.dl_btn.pack(fill="x", ipady=8)
+        tk.Frame(card, bg=CARD, height=6).pack()
 
-        # --- Reset button ---
-        reset_btn = tk.Button(card, text="↺   Download another show",
-                              bg=CARD, fg=FG_MUT,
-                              font=("Segoe UI", 10),
-                              relief="flat", cursor="hand2",
-                              highlightthickness=1, highlightbackground=BORDER,
-                              activebackground=BORDER, activeforeground=MONO_FG,
-                              command=self._reset)
-        reset_btn.pack(fill="x", ipady=6, pady=(8, 0))
+        # ── Download button ─────────────────────────────────────
+        self.dl_btn = tk.Button(
+            card, text="⬇  Start download",
+            bg=PINK, fg=FG,
+            font=("Segoe UI", 12, "bold"),
+            relief="flat", cursor="hand2",
+            activebackground=PINK_ACT, activeforeground=FG,
+            command=self._start_download
+        )
+        self.dl_btn.pack(fill="x", ipady=9)
 
-        ttk.Separator(card, orient="horizontal").pack(fill="x", pady=(16, 10))
+        # ── Reset button ────────────────────────────────────────
+        reset_btn = tk.Button(
+            card, text="↺   Download another show",
+            bg=CARD, fg=FG_MUT,
+            font=("Segoe UI", 10),
+            relief="flat", cursor="hand2",
+            highlightthickness=1, highlightbackground=BORDER,
+            activebackground=SURFACE, activeforeground=PINK,
+            command=self._reset
+        )
+        reset_btn.pack(fill="x", ipady=7, pady=(8, 0))
 
-        # --- Output log ---
-        tk.Label(card, text="OUTPUT", bg=CARD, fg=FG_MUT,
-                 font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        self._sep(card)
+
+        # ── Output log ──────────────────────────────────────────
+        self._label(card, "OUTPUT")
 
         self.log = scrolledtext.ScrolledText(
-            card, height=12, bg="#0a1628", fg=MONO_FG,
+            card, height=13, bg="#0d0d0d", fg=FG_MUT,
             insertbackground=FG, relief="flat",
             font=("Consolas", 10), wrap="word",
             highlightthickness=1, highlightbackground=BORDER,
@@ -131,12 +164,55 @@ class App(tk.Tk):
         )
         self.log.pack(fill="both", expand=True, pady=(4, 0))
 
-        # Tag colours
-        self.log.tag_config("info",    foreground=MONO_FG)
-        self.log.tag_config("success", foreground="#4caf79")
-        self.log.tag_config("error",   foreground="#f47a8a")
-        self.log.tag_config("warning", foreground="#f4b84a")
-        self.log.tag_config("cmd",     foreground="#c0a0ff")
+        self.log.tag_config("info",    foreground=FG_MUT)
+        self.log.tag_config("cmd",     foreground=PINK)
+        self.log.tag_config("success", foreground=SUCCESS_FG)
+        self.log.tag_config("error",   foreground=ERROR_FG)
+        self.log.tag_config("warning", foreground=WARN_FG)
+
+    # ── Helpers ──────────────────────────────────────────────────
+
+    def _sep(self, parent):
+        f = tk.Frame(parent, bg=BORDER, height=1)
+        f.pack(fill="x", pady=(0, 14))
+
+    def _label(self, parent, text):
+        tk.Label(parent, text=text, bg=CARD, fg=FG_HINT,
+                 font=("Segoe UI", 9, "bold")).pack(anchor="w")
+
+    def _entry(self, parent, var, placeholder=""):
+        e = tk.Entry(parent, textvariable=var,
+                     bg=INPUT_BG, fg=FG, insertbackground=FG,
+                     relief="flat", font=("Segoe UI", 11),
+                     highlightthickness=1,
+                     highlightbackground=INPUT_BD,
+                     highlightcolor=PINK)
+        e.pack(fill="x", ipady=7, pady=(4, 12))
+
+        # Placeholder
+        if placeholder:
+            def _on_focus_in(event, e=e, ph=placeholder):
+                if e.get() == ph:
+                    e.delete(0, "end")
+                    e.config(fg=FG)
+            def _on_focus_out(event, e=e, ph=placeholder, var=var):
+                if not e.get():
+                    e.insert(0, ph)
+                    e.config(fg=FG_HINT)
+
+            e.insert(0, placeholder)
+            e.config(fg=FG_HINT)
+            e.bind("<FocusIn>",  _on_focus_in)
+            e.bind("<FocusOut>", _on_focus_out)
+
+            # Prevent placeholder from being read by var
+            orig_get = var.get
+            def guarded_get():
+                val = orig_get()
+                return "" if val == placeholder else val
+            var.get = guarded_get
+
+        return e
 
     def _update_path(self, *_):
         clean = sanitize(self.show_name_var.get())
@@ -161,11 +237,9 @@ class App(tk.Tk):
         show_id   = self.ids_var.get().strip()
 
         if not show_name:
-            self._log("⚠  Please enter a show name.\n", "warning")
-            return
+            self._log("⚠  Please enter a show name.\n", "warning"); return
         if not show_id:
-            self._log("⚠  Please enter at least one ID.\n", "warning")
-            return
+            self._log("⚠  Please enter at least one ID.\n", "warning"); return
 
         out_path = BASE_OUTPUT_DIR + "\\" + show_name
         cmd = [
@@ -173,8 +247,8 @@ class App(tk.Tk):
             f"--pid={show_id}",
             "--force",
             "--pid-recursive",
-            '--file-prefix=<senum> - <-episodeshort>',
-            f"-o", out_path,
+            "--file-prefix=<senum> - <-episodeshort>",
+            "-o", out_path,
         ]
 
         self._log("Command:\n", "info")
@@ -204,7 +278,7 @@ class App(tk.Tk):
                            f"\n✖  Exited with code {proc.returncode}\n", "error")
         except FileNotFoundError:
             self.after(0, self._log,
-                       "\n✖  get_iplayer not found. Make sure it's on your PATH.\n",
+                       "\n✖  get_iplayer not found — check it's on your PATH.\n",
                        "error")
         except Exception as e:
             self.after(0, self._log, f"\n✖  Error: {e}\n", "error")
