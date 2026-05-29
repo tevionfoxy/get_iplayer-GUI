@@ -205,12 +205,12 @@ class App(tk.Tk):
 
     def _build_ui(self):
         PAD = 20
-        outer = tk.Frame(self, bg=BG, padx=PAD, pady=PAD)
-        outer.pack(fill="both", expand=True)
+        outer = tk.Frame(self, bg=BG, padx=PAD)
+        outer.pack(fill="both", expand=True, padx=0, pady=(PAD, PAD))
 
         card = tk.Frame(outer, bg=CARD, bd=0,
                         highlightthickness=1, highlightbackground=BORDER,
-                        padx=PAD, pady=PAD)
+                        padx=PAD)
         card.pack(fill="both", expand=True)
         card.columnconfigure(0, weight=1)
 
@@ -227,13 +227,11 @@ class App(tk.Tk):
                  relief="flat", font=("Consolas", 10),
                  highlightthickness=1, highlightbackground=INPUT_BD,
                  highlightcolor=PINK).pack(side="left", fill="x", expand=True, ipady=7)
-        self.save_path_var.trace_add("write", self._on_save_path_changed)
         self._small_btn(path_row, "📁 Browse", self._browse_save_path)
 
         # Show name
         self._label(card, "SHOW NAME")
         self.show_name_var = tk.StringVar()
-        self.show_name_var.trace_add("write", self._update_output_path)
         self._entry(card, self.show_name_var, "e.g. Blue Planet")
 
         # Output path preview
@@ -243,6 +241,9 @@ class App(tk.Tk):
         tk.Label(preview, text="→", bg=SURFACE, fg=FG_HINT,
                  font=("Segoe UI", 10)).pack(side="left", padx=(10, 4), pady=6)
         self.output_path_var = tk.StringVar(value=self.save_base + "\\")
+        # Add all traces here, after output_path_var exists
+        self.save_path_var.trace_add("write", self._on_save_path_changed)
+        self.show_name_var.trace_add("write", self._update_output_path)
         tk.Label(preview, textvariable=self.output_path_var,
                  bg=SURFACE, fg=PINK, font=("Consolas", 10), anchor="w",
                  wraplength=390, justify="left").pack(side="left", pady=6, padx=(0, 8))
@@ -342,46 +343,78 @@ class App(tk.Tk):
         self.log.tag_config("warning", foreground=WARN_FG)
 
     def _build_header(self, parent):
-        # Full-width frame so we can place items at left, centre, right
         hdr = tk.Frame(parent, bg=CARD)
-        hdr.pack(fill="x", pady=(0, 8))
+        hdr.pack(fill="x", pady=(6, 0))
 
-        # ── Right: settings gear ──────────────────────────────────────────────
+        # Gear — right side
         tk.Button(hdr, text="⚙",
-                  bg=CARD, fg=FG_HINT,
-                  font=("Segoe UI", 13),
+                  bg=CARD, fg=FG_HINT, font=("Segoe UI", 11),
                   relief="flat", cursor="hand2", bd=0,
                   activebackground=SURFACE, activeforeground=FG,
                   command=self._open_settings
-                  ).pack(side="right", padx=(0, 0))
+                  ).pack(side="right", pady=8)
 
-        # ── Centre: icon + title (packed after right so they truly centre) ────
-        centre = tk.Frame(hdr, bg=CARD)
-        centre.place(relx=0.5, rely=0.5, anchor="center")
-
+        # .ico icon — try PIL first, then tkinter's native BitmapImage on Windows
         self._pvr_img = None
-        if os.path.exists(ICON_PVR):
+        for ico_path in [ICON_MAIN, ICON_PVR]:
+            if not os.path.exists(ico_path):
+                continue
+            # Method 1: PIL/Pillow
             try:
                 from PIL import Image, ImageTk
-                img = Image.open(ICON_PVR).resize((20, 20), Image.LANCZOS)
+                ico = Image.open(ico_path)
+                best = None
+                for frame in range(getattr(ico, 'n_frames', 1)):
+                    ico.seek(frame)
+                    if best is None or ico.size[0] > best.size[0]:
+                        best = ico.copy()
+                img = best.resize((50, 50), Image.LANCZOS).convert("RGBA")
                 self._pvr_img = ImageTk.PhotoImage(img)
-                tk.Label(centre, image=self._pvr_img, bg=CARD).pack(side="left", padx=(0, 6))
+                break
             except Exception:
-                self._pvr_img = None
+                pass
+            # Method 2: extract PNG from ico using struct (no deps)
+            try:
+                import struct, io
+                with open(ico_path, 'rb') as f:
+                    f.read(4)  # reserved + type
+                    count = struct.unpack_from('<H', f.read(2))[0]
+                    entries = []
+                    for _ in range(count):
+                        data = f.read(16)
+                        w = struct.unpack_from('B', data, 0)[0] or 256
+                        offset = struct.unpack_from('<I', data, 12)[0]
+                        size   = struct.unpack_from('<I', data, 8)[0]
+                        entries.append((w, offset, size))
+                    entries.sort(key=lambda x: x[0], reverse=True)
+                    w, offset, size = entries[0]
+                    f.seek(offset)
+                    raw = f.read(size)
+                # PNG frames start with PNG magic bytes
+                if raw[:8] == b'\x89PNG\r\n\x1a\n':
+                    self._pvr_img = tk.PhotoImage(data=raw)
+                    # Scale down to ~50px using subsample
+                    s = max(1, self._pvr_img.width() // 50)
+                    self._pvr_img = self._pvr_img.subsample(s, s)
+                    break
+            except Exception:
+                pass
 
-        if self._pvr_img is None:
-            tk.Label(centre, text="▶", bg=PINK, fg=FG,
-                     font=("Segoe UI", 9, "bold"),
-                     padx=5, pady=2).pack(side="left", padx=(0, 6))
+        if self._pvr_img:
+            tk.Label(hdr, image=self._pvr_img, bg=CARD, bd=0
+                     ).pack(side="left", padx=(0, 10), pady=6)
 
-        tk.Label(centre, text="get_iplayer", bg=CARD, fg=PINK,
-                 font=("Segoe UI", 11, "bold")).pack(side="left")
-        tk.Label(centre, text="— BBC iPlayer downloader", bg=CARD, fg=FG_HINT,
-                 font=("Segoe UI", 9)).pack(side="left", padx=(5, 0))
-
-        # Give the header a fixed height so .place() works reliably
-        hdr.configure(height=30)
-        hdr.pack_propagate(False)
+        # Single-line title centred on icon
+        text_frame = tk.Frame(hdr, bg=CARD)
+        text_frame.pack(side="left", anchor="center")
+        title = tk.Frame(text_frame, bg=CARD)
+        title.pack(anchor="w")
+        tk.Label(title, text="get_iplayer",
+                 bg=CARD, fg=PINK,
+                 font=("Segoe UI", 12, "bold")).pack(side="left")
+        tk.Label(title, text="  —  BBC iPlayer downloader",
+                 bg=CARD, fg=FG_HINT,
+                 font=("Segoe UI", 10)).pack(side="left")
 
     # ── Widget helpers ────────────────────────────────────────────────────────
 
