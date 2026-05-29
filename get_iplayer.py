@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, scrolledtext, filedialog, messagebox
+from tkinter import scrolledtext, filedialog, messagebox
 import subprocess
 import threading
 import re
@@ -30,7 +30,6 @@ SETTINGS_FILE = os.path.join(SCRIPT_DIR, "iplayer_downloader_settings.json")
 
 DEFAULT_SAVE_PATH = os.path.join(os.path.expanduser("~"), "Videos", "Iplayer")
 
-# ── Common get_iplayer install locations on Windows ──────────────────────────
 COMMON_LOCATIONS = [
     r"C:\Program Files\get_iplayer\get_iplayer.cmd",
     r"C:\Program Files\get_iplayer\get_iplayer.bat",
@@ -58,9 +57,7 @@ def save_settings(data):
         pass
 
 def find_get_iplayer():
-    """Try the script's own folder first, then PATH, then common install paths."""
-    local_names = ["get_iplayer.cmd", "get_iplayer.bat", "get_iplayer.exe", "get_iplayer.pl"]
-    for name in local_names:
+    for name in ["get_iplayer.cmd", "get_iplayer.bat", "get_iplayer.exe", "get_iplayer.pl"]:
         local = os.path.join(SCRIPT_DIR, name)
         if os.path.isfile(local):
             return local
@@ -73,16 +70,117 @@ def find_get_iplayer():
     return None
 
 
+class SettingsWindow(tk.Toplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.title("Settings")
+        self.configure(bg=BG)
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()
+
+        if os.path.exists(ICON_MAIN):
+            try:
+                self.iconbitmap(ICON_MAIN)
+            except Exception:
+                pass
+
+        outer = tk.Frame(self, bg=BG, padx=20, pady=20)
+        outer.pack(fill="both", expand=True)
+
+        card = tk.Frame(outer, bg=CARD, bd=0,
+                        highlightthickness=1, highlightbackground=BORDER,
+                        padx=20, pady=20)
+        card.pack(fill="both", expand=True)
+
+        tk.Label(card, text="SETTINGS", bg=CARD, fg=PINK,
+                 font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(0, 12))
+
+        tk.Frame(card, bg=BORDER, height=1).pack(fill="x", pady=(0, 12))
+
+        # Exe path
+        tk.Label(card, text="get_iplayer EXECUTABLE", bg=CARD, fg=FG_HINT,
+                 font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        tk.Label(card, text="Path to get_iplayer.cmd / .bat / .exe",
+                 bg=CARD, fg=FG_HINT, font=("Segoe UI", 8)).pack(anchor="w", pady=(1, 4))
+
+        exe_row = tk.Frame(card, bg=CARD)
+        exe_row.pack(fill="x", pady=(0, 4))
+
+        self.exe_var = tk.StringVar(value=parent.exe_path)
+        tk.Entry(exe_row, textvariable=self.exe_var,
+                 bg=INPUT_BG, fg=FG_MUT, insertbackground=FG,
+                 relief="flat", font=("Consolas", 10),
+                 highlightthickness=1, highlightbackground=INPUT_BD,
+                 highlightcolor=PINK).pack(side="left", fill="x", expand=True, ipady=7)
+
+        tk.Button(exe_row, text="🔍 Browse",
+                  bg=SURFACE, fg=FG_MUT, font=("Segoe UI", 9),
+                  relief="flat", cursor="hand2",
+                  activebackground=BORDER, activeforeground=FG,
+                  highlightthickness=1, highlightbackground=BORDER,
+                  command=self._browse_exe
+                  ).pack(side="left", padx=(6, 0), ipady=7, ipadx=6)
+
+        tk.Frame(card, bg=BORDER, height=1).pack(fill="x", pady=(16, 12))
+
+        # Save / Close buttons
+        btn_row = tk.Frame(card, bg=CARD)
+        btn_row.pack(fill="x")
+
+        tk.Button(btn_row, text="Save",
+                  bg=PINK, fg=FG, font=("Segoe UI", 10, "bold"),
+                  relief="flat", cursor="hand2",
+                  activebackground=PINK_ACT, activeforeground=FG,
+                  command=self._save).pack(side="left", fill="x", expand=True, ipady=7)
+
+        tk.Frame(btn_row, bg=BORDER, width=1).pack(side="left", fill="y", padx=6)
+
+        tk.Button(btn_row, text="Close",
+                  bg=SURFACE, fg=FG_MUT, font=("Segoe UI", 10),
+                  relief="flat", cursor="hand2",
+                  highlightthickness=1, highlightbackground=BORDER,
+                  activebackground=BORDER, activeforeground=FG,
+                  command=self.destroy).pack(side="left", fill="x", expand=True, ipady=7)
+
+        self.update_idletasks()
+        pw, ph = parent.winfo_x(), parent.winfo_y()
+        pw2, ph2 = parent.winfo_width(), parent.winfo_height()
+        w, h = self.winfo_width(), self.winfo_height()
+        self.geometry(f"{max(w,420)}x{h}+{pw + (pw2-max(w,420))//2}+{ph + (ph2-h)//2}")
+
+    def _browse_exe(self):
+        chosen = filedialog.askopenfilename(
+            title="Locate get_iplayer executable",
+            filetypes=[("Executables / Scripts", "*.cmd *.bat *.exe *.pl *"),
+                       ("All files", "*.*")])
+        if chosen:
+            self.exe_var.set(os.path.normpath(chosen))
+
+    def _save(self):
+        exe = self.exe_var.get().strip()
+        self.parent.exe_path = exe
+        self.parent.exe_var_store = exe
+        self.parent.settings["exe_path"] = exe
+        save_settings(self.parent.settings)
+        self.destroy()
+
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("get_iplayer Downloader")
-        self.resizable(False, False)
+        self.resizable(True, True)
         self.configure(bg=BG)
 
-        self.settings = load_settings()
-        self.save_base = self.settings.get("save_path", DEFAULT_SAVE_PATH)
-        self.exe_path  = self.settings.get("exe_path", "") or find_get_iplayer() or ""
+        self.settings    = load_settings()
+        self.save_base   = self.settings.get("save_path", DEFAULT_SAVE_PATH)
+        self.exe_path    = self.settings.get("exe_path", "") or find_get_iplayer() or ""
+        self.exe_var_store = self.exe_path  # kept in sync by settings window
+
+        self._proc     = None
+        self._out_path = ""
 
         if os.path.exists(ICON_MAIN):
             try:
@@ -92,18 +190,18 @@ class App(tk.Tk):
 
         self._build_ui()
         self._center()
+        self._refresh_controls()
 
-        # Warn if get_iplayer not found
         if not self.exe_path:
             self.after(300, self._warn_no_exe)
 
     def _center(self):
         self.update_idletasks()
-        w, h = self.winfo_width(), self.winfo_height()
+        w, h = 560, 780
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{w}x{h}+{(sw-w)//2}+{(sh-h)//2}")
 
-    # ── UI Construction ───────────────────────────────────────────────────────
+    # ── UI ────────────────────────────────────────────────────────────────────
 
     def _build_ui(self):
         PAD = 20
@@ -114,34 +212,23 @@ class App(tk.Tk):
                         highlightthickness=1, highlightbackground=BORDER,
                         padx=PAD, pady=PAD)
         card.pack(fill="both", expand=True)
+        card.columnconfigure(0, weight=1)
 
-        # Header
         self._build_header(card)
-        self._sep(card)
+        tk.Frame(card, bg=BORDER, height=1).pack(fill="x", pady=(0, 10))
 
-        # Save path row
+        # Save location
         self._label(card, "SAVE LOCATION")
         path_row = tk.Frame(card, bg=CARD)
-        path_row.pack(fill="x", pady=(4, 12))
-
+        path_row.pack(fill="x", pady=(3, 8))
         self.save_path_var = tk.StringVar(value=self.save_base)
-        path_entry = tk.Entry(path_row, textvariable=self.save_path_var,
-                              bg=INPUT_BG, fg=PINK, insertbackground=FG,
-                              relief="flat", font=("Consolas", 10),
-                              highlightthickness=1,
-                              highlightbackground=INPUT_BD,
-                              highlightcolor=PINK)
-        path_entry.pack(side="left", fill="x", expand=True, ipady=7)
+        tk.Entry(path_row, textvariable=self.save_path_var,
+                 bg=INPUT_BG, fg=PINK, insertbackground=FG,
+                 relief="flat", font=("Consolas", 10),
+                 highlightthickness=1, highlightbackground=INPUT_BD,
+                 highlightcolor=PINK).pack(side="left", fill="x", expand=True, ipady=7)
         self.save_path_var.trace_add("write", self._on_save_path_changed)
-
-        browse_btn = tk.Button(path_row, text="📁 Browse",
-                               bg=SURFACE, fg=FG_MUT,
-                               font=("Segoe UI", 9),
-                               relief="flat", cursor="hand2",
-                               activebackground=BORDER, activeforeground=FG,
-                               highlightthickness=1, highlightbackground=BORDER,
-                               command=self._browse_save_path)
-        browse_btn.pack(side="left", padx=(6, 0), ipady=7, ipadx=6)
+        self._small_btn(path_row, "📁 Browse", self._browse_save_path)
 
         # Show name
         self._label(card, "SHOW NAME")
@@ -150,87 +237,104 @@ class App(tk.Tk):
         self._entry(card, self.show_name_var, "e.g. Blue Planet")
 
         # Output path preview
-        preview_frame = tk.Frame(card, bg=SURFACE,
-                                 highlightthickness=1, highlightbackground=BORDER)
-        preview_frame.pack(fill="x", pady=(0, 14))
-
-        tk.Label(preview_frame, text="→", bg=SURFACE, fg=FG_HINT,
+        preview = tk.Frame(card, bg=SURFACE,
+                           highlightthickness=1, highlightbackground=BORDER)
+        preview.pack(fill="x", pady=(0, 8))
+        tk.Label(preview, text="→", bg=SURFACE, fg=FG_HINT,
                  font=("Segoe UI", 10)).pack(side="left", padx=(10, 4), pady=6)
-
         self.output_path_var = tk.StringVar(value=self.save_base + "\\")
-        tk.Label(preview_frame, textvariable=self.output_path_var,
-                 bg=SURFACE, fg=PINK,
-                 font=("Consolas", 10), anchor="w",
-                 wraplength=390, justify="left").pack(
-                     side="left", pady=6, padx=(0, 8))
+        tk.Label(preview, textvariable=self.output_path_var,
+                 bg=SURFACE, fg=PINK, font=("Consolas", 10), anchor="w",
+                 wraplength=390, justify="left").pack(side="left", pady=6, padx=(0, 8))
 
         # IDs
         self._label(card, "SHOW / SEASON / EPISODE IDs  (comma-separated)")
         self.ids_var = tk.StringVar()
         self._entry(card, self.ids_var, "e.g. b09w7fd3, p07qr8bz")
 
-        tk.Frame(card, bg=CARD, height=4).pack()
+        # ── Start / Cancel ────────────────────────────────────────────────────
+        action_row = tk.Frame(card, bg=CARD)
+        action_row.pack(fill="x")
 
-        # Download button
         self.dl_btn = tk.Button(
-            card, text="⬇  Start download",
-            bg=PINK, fg=FG,
-            font=("Segoe UI", 12, "bold"),
+            action_row, text="⬇  Start",
+            bg=PINK, fg=FG, font=("Segoe UI", 11, "bold"),
             relief="flat", cursor="hand2",
             activebackground=PINK_ACT, activeforeground=FG,
-            command=self._start_download
-        )
-        self.dl_btn.pack(fill="x", ipady=9)
+            command=self._start_download)
+        self.dl_btn.pack(side="left", fill="x", expand=True, ipady=8)
 
-        # Reset button
+        tk.Frame(action_row, bg=BORDER, width=1).pack(side="left", fill="y", padx=4)
+
+        self.cancel_btn = tk.Button(
+            action_row, text="✖  Cancel",
+            bg=SURFACE, fg=ERROR_FG,
+            font=("Segoe UI", 11, "bold"),
+            relief="flat", cursor="hand2",
+            highlightthickness=1, highlightbackground=BORDER,
+            activebackground=BORDER, activeforeground=ERROR_FG,
+            command=self._cancel_download)
+        self.cancel_btn.pack(side="left", fill="x", expand=True, ipady=8)
+
+        # ── Folder actions ────────────────────────────────────────────────────
+        self._sep_top(card)
+        self._label(card, "FOLDER ACTIONS")
+
+        tk.Button(
+            card, text="📂  Show folder",
+            bg=SURFACE, fg=FG_MUT, font=("Segoe UI", 10),
+            relief="flat", cursor="hand2",
+            highlightthickness=1, highlightbackground=BORDER,
+            activebackground=BORDER, activeforeground=FG,
+            command=self._show_folder
+        ).pack(fill="x", pady=(6, 4), ipady=7)
+
+        folder_row = tk.Frame(card, bg=CARD)
+        folder_row.pack(fill="x")
+
+        self.del_folder_btn = tk.Button(
+            folder_row, text="🗑  Delete folder",
+            bg=SURFACE, fg=ERROR_FG, font=("Segoe UI", 10),
+            relief="flat", cursor="hand2",
+            highlightthickness=1, highlightbackground=BORDER,
+            activebackground=BORDER, activeforeground=ERROR_FG,
+            command=self._delete_folder)
+        self.del_folder_btn.pack(side="left", fill="x", expand=True, ipady=7)
+
+        tk.Frame(folder_row, bg=BORDER, width=1).pack(side="left", fill="y", padx=4)
+
+        self.del_files_btn = tk.Button(
+            folder_row, text="🗂  Delete files only",
+            bg=SURFACE, fg=WARN_FG, font=("Segoe UI", 10),
+            relief="flat", cursor="hand2",
+            highlightthickness=1, highlightbackground=BORDER,
+            activebackground=BORDER, activeforeground=WARN_FG,
+            command=self._delete_files)
+        self.del_files_btn.pack(side="left", fill="x", expand=True, ipady=7)
+
+        # ── Reset ─────────────────────────────────────────────────────────────
+        self._sep_top(card)
         tk.Button(
             card, text="↺   Download another show",
-            bg=CARD, fg=FG_MUT,
-            font=("Segoe UI", 10),
+            bg=CARD, fg=FG_MUT, font=("Segoe UI", 10),
             relief="flat", cursor="hand2",
             highlightthickness=1, highlightbackground=BORDER,
             activebackground=SURFACE, activeforeground=PINK,
             command=self._reset
-        ).pack(fill="x", ipady=7, pady=(8, 0))
+        ).pack(fill="x", ipady=7)
 
         self._sep(card)
 
-        # get_iplayer exe path row
-        self._label(card, "get_iplayer EXECUTABLE")
-        exe_row = tk.Frame(card, bg=CARD)
-        exe_row.pack(fill="x", pady=(4, 12))
-
-        self.exe_var = tk.StringVar(value=self.exe_path)
-        exe_entry = tk.Entry(exe_row, textvariable=self.exe_var,
-                             bg=INPUT_BG, fg=FG_MUT, insertbackground=FG,
-                             relief="flat", font=("Consolas", 10),
-                             highlightthickness=1,
-                             highlightbackground=INPUT_BD,
-                             highlightcolor=PINK)
-        exe_entry.pack(side="left", fill="x", expand=True, ipady=7)
-        self.exe_var.trace_add("write", self._on_exe_changed)
-
-        tk.Button(exe_row, text="🔍 Browse",
-                  bg=SURFACE, fg=FG_MUT,
-                  font=("Segoe UI", 9),
-                  relief="flat", cursor="hand2",
-                  activebackground=BORDER, activeforeground=FG,
-                  highlightthickness=1, highlightbackground=BORDER,
-                  command=self._browse_exe
-                  ).pack(side="left", padx=(6, 0), ipady=7, ipadx=6)
-
-        self._sep(card)
-
-        # Log
+        # ── Output log ────────────────────────────────────────────────────────
         self._label(card, "OUTPUT")
         self.log = scrolledtext.ScrolledText(
-            card, height=11, bg="#0d0d0d", fg=FG_MUT,
+            card, height=6, bg="#0d0d0d", fg=FG_MUT,
             insertbackground=FG, relief="flat",
             font=("Consolas", 10), wrap="word",
             highlightthickness=1, highlightbackground=BORDER,
-            state="disabled"
-        )
+            state="disabled")
         self.log.pack(fill="both", expand=True, pady=(4, 0))
+        outer.pack_propagate(False)
         self.log.tag_config("info",    foreground=FG_MUT)
         self.log.tag_config("cmd",     foreground=PINK)
         self.log.tag_config("success", foreground=SUCCESS_FG)
@@ -238,62 +342,82 @@ class App(tk.Tk):
         self.log.tag_config("warning", foreground=WARN_FG)
 
     def _build_header(self, parent):
+        # Full-width frame so we can place items at left, centre, right
         hdr = tk.Frame(parent, bg=CARD)
-        hdr.pack(fill="x", pady=(0, 14))
+        hdr.pack(fill="x", pady=(0, 8))
+
+        # ── Right: settings gear ──────────────────────────────────────────────
+        tk.Button(hdr, text="⚙",
+                  bg=CARD, fg=FG_HINT,
+                  font=("Segoe UI", 13),
+                  relief="flat", cursor="hand2", bd=0,
+                  activebackground=SURFACE, activeforeground=FG,
+                  command=self._open_settings
+                  ).pack(side="right", padx=(0, 0))
+
+        # ── Centre: icon + title (packed after right so they truly centre) ────
+        centre = tk.Frame(hdr, bg=CARD)
+        centre.place(relx=0.5, rely=0.5, anchor="center")
 
         self._pvr_img = None
         if os.path.exists(ICON_PVR):
             try:
                 from PIL import Image, ImageTk
-                img = Image.open(ICON_PVR).resize((32, 32), Image.LANCZOS)
+                img = Image.open(ICON_PVR).resize((20, 20), Image.LANCZOS)
                 self._pvr_img = ImageTk.PhotoImage(img)
-                tk.Label(hdr, image=self._pvr_img, bg=CARD).pack(side="left", padx=(0, 10))
+                tk.Label(centre, image=self._pvr_img, bg=CARD).pack(side="left", padx=(0, 6))
             except Exception:
                 self._pvr_img = None
 
         if self._pvr_img is None:
-            tk.Label(hdr, text="▶", bg=PINK, fg=FG,
-                     font=("Segoe UI", 13, "bold"),
-                     width=3, pady=5).pack(side="left", padx=(0, 10))
+            tk.Label(centre, text="▶", bg=PINK, fg=FG,
+                     font=("Segoe UI", 9, "bold"),
+                     padx=5, pady=2).pack(side="left", padx=(0, 6))
 
-        tf = tk.Frame(hdr, bg=CARD)
-        tf.pack(side="left", anchor="w")
-        tk.Label(tf, text="get_iplayer", bg=CARD, fg=PINK,
-                 font=("Segoe UI", 14, "bold")).pack(anchor="w")
-        tk.Label(tf, text="BBC iPlayer downloader", bg=CARD, fg=FG_HINT,
-                 font=("Segoe UI", 9)).pack(anchor="w")
+        tk.Label(centre, text="get_iplayer", bg=CARD, fg=PINK,
+                 font=("Segoe UI", 11, "bold")).pack(side="left")
+        tk.Label(centre, text="— BBC iPlayer downloader", bg=CARD, fg=FG_HINT,
+                 font=("Segoe UI", 9)).pack(side="left", padx=(5, 0))
 
-    # ── Helpers ───────────────────────────────────────────────────────────────
+        # Give the header a fixed height so .place() works reliably
+        hdr.configure(height=30)
+        hdr.pack_propagate(False)
+
+    # ── Widget helpers ────────────────────────────────────────────────────────
 
     def _sep(self, parent):
-        tk.Frame(parent, bg=BORDER, height=1).pack(fill="x", pady=(0, 14))
+        tk.Frame(parent, bg=BORDER, height=1).pack(fill="x", pady=(8, 8))
+
+    def _sep_top(self, parent):
+        tk.Frame(parent, bg=BORDER, height=1).pack(fill="x", pady=(8, 0))
 
     def _label(self, parent, text):
         tk.Label(parent, text=text, bg=CARD, fg=FG_HINT,
                  font=("Segoe UI", 9, "bold")).pack(anchor="w")
 
+    def _small_btn(self, parent, text, cmd):
+        tk.Button(parent, text=text, bg=SURFACE, fg=FG_MUT,
+                  font=("Segoe UI", 9), relief="flat", cursor="hand2",
+                  activebackground=BORDER, activeforeground=FG,
+                  highlightthickness=1, highlightbackground=BORDER,
+                  command=cmd).pack(side="left", padx=(6, 0), ipady=7, ipadx=6)
+
     def _entry(self, parent, var, placeholder=""):
         e = tk.Entry(parent, textvariable=var,
                      bg=INPUT_BG, fg=FG, insertbackground=FG,
                      relief="flat", font=("Segoe UI", 11),
-                     highlightthickness=1,
-                     highlightbackground=INPUT_BD,
+                     highlightthickness=1, highlightbackground=INPUT_BD,
                      highlightcolor=PINK)
-        e.pack(fill="x", ipady=7, pady=(4, 12))
-
+        e.pack(fill="x", ipady=6, pady=(3, 8))
         if placeholder:
-            def _fi(event, e=e, ph=placeholder):
+            def _fi(ev, e=e, ph=placeholder):
                 if e.get() == ph:
-                    e.delete(0, "end")
-                    e.config(fg=FG)
-            def _fo(event, e=e, ph=placeholder):
+                    e.delete(0, "end"); e.config(fg=FG)
+            def _fo(ev, e=e, ph=placeholder):
                 if not e.get():
-                    e.insert(0, ph)
-                    e.config(fg=FG_HINT)
-            e.insert(0, placeholder)
-            e.config(fg=FG_HINT)
-            e.bind("<FocusIn>",  _fi)
-            e.bind("<FocusOut>", _fo)
+                    e.insert(0, ph); e.config(fg=FG_HINT)
+            e.insert(0, placeholder); e.config(fg=FG_HINT)
+            e.bind("<FocusIn>", _fi); e.bind("<FocusOut>", _fo)
             orig = var.get
             var.get = lambda ph=placeholder, orig=orig: ("" if orig() == ph else orig())
         return e
@@ -304,6 +428,18 @@ class App(tk.Tk):
         self.log.see("end")
         self.log.configure(state="disabled")
 
+    # ── Control state ─────────────────────────────────────────────────────────
+
+    def _refresh_controls(self):
+        running = self._proc is not None
+        self.dl_btn.configure(state="disabled" if running else "normal")
+        self.cancel_btn.configure(state="normal" if running else "disabled")
+
+    # ── Settings ──────────────────────────────────────────────────────────────
+
+    def _open_settings(self):
+        SettingsWindow(self)
+
     # ── Event handlers ────────────────────────────────────────────────────────
 
     def _on_save_path_changed(self, *_):
@@ -312,51 +448,31 @@ class App(tk.Tk):
         self.settings["save_path"] = self.save_base
         save_settings(self.settings)
 
-    def _on_exe_changed(self, *_):
-        self.exe_path = self.exe_var.get()
-        self.settings["exe_path"] = self.exe_path
-        save_settings(self.settings)
-
     def _update_output_path(self, *_):
         clean = sanitize(self.show_name_var.get())
-        self.output_path_var.set(
-            self.save_base.rstrip("\\") + "\\" + clean
-        )
+        self.output_path_var.set(self.save_base.rstrip("\\") + "\\" + clean)
 
     def _browse_save_path(self):
         chosen = filedialog.askdirectory(
             title="Choose default save folder",
-            initialdir=self.save_base if os.path.isdir(self.save_base) else "/"
-        )
+            initialdir=self.save_base if os.path.isdir(self.save_base) else "/")
         if chosen:
-            # Normalise to Windows-style path
-            chosen = os.path.normpath(chosen)
-            self.save_path_var.set(chosen)
-
-    def _browse_exe(self):
-        chosen = filedialog.askopenfilename(
-            title="Locate get_iplayer executable",
-            filetypes=[("Executables / Scripts", "*.cmd *.bat *.exe *.pl *"),
-                       ("All files", "*.*")]
-        )
-        if chosen:
-            self.exe_var.set(os.path.normpath(chosen))
+            self.save_path_var.set(os.path.normpath(chosen))
 
     def _warn_no_exe(self):
         self._log(
             "⚠  get_iplayer not found automatically.\n"
-            "   Set the path to the executable in the field below, or ensure\n"
-            "   get_iplayer is on your system PATH.\n\n",
-            "warning"
-        )
+            "   Open Settings (⚙) to set the path to the executable.\n\n",
+            "warning")
 
     def _reset(self):
         self.show_name_var.set("")
         self.ids_var.set("")
+        self._out_path = ""
         self.log.configure(state="normal")
         self.log.delete("1.0", "end")
         self.log.configure(state="disabled")
-        self.dl_btn.configure(state="normal")
+        self._refresh_controls()
 
     # ── Download ──────────────────────────────────────────────────────────────
 
@@ -369,50 +485,122 @@ class App(tk.Tk):
         if not show_id:
             self._log("⚠  Please enter at least one ID.\n", "warning"); return
 
-        # Resolve executable
-        exe = self.exe_var.get().strip() or find_get_iplayer()
+        exe = self.exe_path or self.exe_var_store or find_get_iplayer()
         if not exe:
-            self._log(
-                "✖  Cannot find get_iplayer.\n"
-                "   Use the 🔍 Browse button below to locate it.\n", "error"
-            )
-            return
+            self._log("✖  Cannot find get_iplayer.\n"
+                      "   Open Settings (⚙) to set the path.\n", "error"); return
 
-        out_path = self.save_base.rstrip("\\") + "\\" + show_name
+        self._out_path = self.save_base.rstrip("\\") + "\\" + show_name
         cmd = [exe, f"--pid={show_id}", "--force", "--pid-recursive",
-               "--file-prefix=<senum> - <-episodeshort>", "-o", out_path]
+               "--file-prefix=<senum> - <-episodeshort>", "-o", self._out_path]
 
         self._log("Command:\n", "info")
         self._log("  " + " ".join(f'"{c}"' if " " in c else c for c in cmd) + "\n\n", "cmd")
-        self.dl_btn.configure(state="disabled")
+        self._refresh_controls()
 
         threading.Thread(target=self._run, args=(cmd,), daemon=True).start()
 
     def _run(self, cmd):
         try:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True, bufsize=1,
-                shell=False,
-            )
-            for line in proc.stdout:
+            self._proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, bufsize=1, shell=False)
+            for line in self._proc.stdout:
                 self.after(0, self._log, line, "info")
-            proc.wait()
-            if proc.returncode == 0:
+            self._proc.wait()
+            rc = self._proc.returncode
+            if rc == 0:
                 self.after(0, self._log, "\n✔  Done.\n", "success")
+            elif rc == -1 or rc is None:
+                self.after(0, self._log, "\n⚠  Download cancelled.\n", "warning")
             else:
-                self.after(0, self._log,
-                           f"\n✖  Exited with code {proc.returncode}\n", "error")
+                self.after(0, self._log, f"\n✖  Exited with code {rc}\n", "error")
         except FileNotFoundError:
             self.after(0, self._log,
-                       "\n✖  Executable not found — use 🔍 Browse to set the path.\n",
-                       "error")
+                       "\n✖  Executable not found — open Settings (⚙) to set the path.\n", "error")
         except Exception as e:
             self.after(0, self._log, f"\n✖  Error: {e}\n", "error")
         finally:
-            self.after(0, self.dl_btn.configure, {"state": "normal"})
+            self._proc = None
+            self.after(0, self._refresh_controls)
+
+    # ── Cancel ────────────────────────────────────────────────────────────────
+
+    def _cancel_download(self):
+        if not self._proc:
+            return
+        if not messagebox.askyesno("Cancel download",
+                                   "Are you sure you want to cancel the download?",
+                                   icon="warning"):
+            return
+        try:
+            self._proc.terminate()
+            self._log("\n⚠  Cancelling…\n", "warning")
+        except Exception as e:
+            self._log(f"⚠  Could not cancel: {e}\n", "warning")
+
+    # ── Folder actions ────────────────────────────────────────────────────────
+
+    def _resolve_folder(self):
+        path = self._out_path
+        if not path:
+            name = sanitize(self.show_name_var.get().strip())
+            path = self.save_base.rstrip("\\") + "\\" + name if name else ""
+        if not path:
+            messagebox.showwarning("No folder", "No output folder is set.")
+            return None
+        if not os.path.isdir(path):
+            messagebox.showwarning("Folder not found", f"Folder does not exist:\n{path}")
+            return None
+        return path
+
+    def _show_folder(self):
+        path = self._resolve_folder()
+        if not path:
+            return
+        try:
+            subprocess.Popen(["explorer", path])
+        except Exception as e:
+            self._log(f"⚠  Could not open folder: {e}\n", "warning")
+
+    def _delete_folder(self):
+        path = self._resolve_folder()
+        if not path:
+            return
+        if not messagebox.askyesno("Are you sure?",
+                                   f"Permanently delete this folder and ALL its contents?\n\n{path}",
+                                   icon="warning"):
+            return
+        try:
+            shutil.rmtree(path)
+            self._out_path = ""
+            self._log(f"🗑  Deleted folder: {path}\n", "warning")
+        except Exception as e:
+            self._log(f"✖  Could not delete folder: {e}\n", "error")
+
+    def _delete_files(self):
+        path = self._resolve_folder()
+        if not path:
+            return
+        files = [f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
+        if not files:
+            messagebox.showinfo("No files", f"No files found in:\n{path}")
+            return
+        if not messagebox.askyesno("Are you sure?",
+                                   f"Delete {len(files)} file(s) inside:\n\n{path}\n\nThe folder itself will be kept.",
+                                   icon="warning"):
+            return
+        errors = []
+        for f in files:
+            try:
+                os.remove(os.path.join(path, f))
+            except Exception as e:
+                errors.append(f"{f}: {e}")
+        if errors:
+            self._log("⚠  Some files could not be deleted:\n  " +
+                      "\n  ".join(errors) + "\n", "warning")
+        else:
+            self._log(f"🗂  Deleted {len(files)} file(s) from: {path}\n", "warning")
 
 
 if __name__ == "__main__":
